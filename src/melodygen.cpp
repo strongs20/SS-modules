@@ -35,6 +35,14 @@ struct Melodygen : Module
 		LIGHTS_LEN
 	};
 
+	float genProb()
+	{
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_real_distribution<float> dis(0.0, 1.0);
+		return dis(gen);
+	}
+
 	Melodygen()
 	{
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -42,7 +50,7 @@ struct Melodygen : Module
 		configParam(SCALE_PARAM, 0.0, ScaleUtils::NUM_SCALES - 1, 0, "Scale");
 
 		configParam(DISJUNCT_PARAM, 0.f, 1.f, 0.5, "Disjunction");
-		configParam(RANGE_PARAM, 1, 5, 0.f, "Octave Range"); // Snapping to integer values between 1 and 5
+		configParam(RANGE_PARAM, 1, 5, 3, "Octave Range"); // Snapping to integer values between 1 and 5
 
 		configParam(NEWNOTEPROB_PARAM, 0.f, 1.f, 0.f, "");
 		configParam(GLIDEPROB_PARAM, 0.f, 1.f, 0.f, "");
@@ -58,10 +66,22 @@ struct Melodygen : Module
 	float lastCV = 0.f;
 	int lastRandIndex = 0;
 	bool gateOn = false;
+	bool skipNote = false;
+	bool trilling = false;
+	float nextTrillCV;
+	float lastTrillCV;
 
 	void process(const ProcessArgs &args) override
 	{
 		float gateIn = inputs[GATE_INPUT].getVoltage();
+		if (skipNote && gateIn >= 10.f)
+		{
+			return;
+		}
+		else if (skipNote && gateIn < 10.f)
+		{
+			skipNote = false;
+		}
 
 		// Read the scale knob and key knobs and determine the selected scale
 		int scaleIndex = static_cast<int>(params[SCALE_PARAM].getValue());
@@ -71,6 +91,7 @@ struct Melodygen : Module
 
 		// Get disjunct param
 		float disjunctValue = static_cast<float>(params[DISJUNCT_PARAM].getValue());
+		float newNoteProb = static_cast<float>(params[NEWNOTEPROB_PARAM].getValue());
 
 		// Get the range in octaves from the knob
 		int range = static_cast<int>(params[RANGE_PARAM].getValue());
@@ -81,7 +102,16 @@ struct Melodygen : Module
 		// Check for positive edge of gate
 		if (gateIn >= 10.f && !gateOn)
 		{
-			outputs[GATE_OUTPUT].setVoltage(10.f);
+			// Determine if new note will happen
+			float randThresh = genProb();
+
+			if (randThresh > newNoteProb)
+			{
+				outputs[GATE_OUTPUT].setVoltage(0.f);
+				skipNote = true;
+				return;
+			}
+
 			std::random_device rd;
 			std::mt19937 gen(rd());
 
@@ -115,6 +145,8 @@ struct Melodygen : Module
 
 			lastCV = (float)randomNote / 12.f; // Assuming 1V/Oct standard
 			lastRandIndex = randomNoteIndex;
+			outputs[GATE_OUTPUT].setVoltage(10.f);
+
 			gateOn = true;
 		}
 		else if (gateIn < 10.f && gateOn)
@@ -126,6 +158,7 @@ struct Melodygen : Module
 		{
 			outputs[GATE_OUTPUT].setVoltage(0.f);
 			gateOn = false;
+			skipNote = false;
 		}
 
 		outputs[CV_OUTPUT].setVoltage(lastCV);
@@ -199,16 +232,19 @@ struct MelodygenWidget : ModuleWidget
 			nvgFillColor(args.vg, nvgRGBA(0, 0, 153, 153)); // RGBA: Blue
 
 			// Convert the scale index to its string representation
-			int scaleIndex = static_cast<int>(module->params[Melodygen::SCALE_PARAM].getValue());
-			std::string scaleName = ScaleUtils::SCALE_NAMES[scaleIndex];
+			if (module)
+			{
+				int scaleIndex = static_cast<int>(module->params[Melodygen::SCALE_PARAM].getValue());
+				std::string scaleName = ScaleUtils::SCALE_NAMES[scaleIndex];
 
-			// Convert the key index to its string representation
-			int keyIndex = static_cast<int>(module->params[Melodygen::KEY_PARAM].getValue());
-			std::string keyName = ScaleUtils::KEY_NAMES[keyIndex];
+				// Convert the key index to its string representation
+				int keyIndex = static_cast<int>(module->params[Melodygen::KEY_PARAM].getValue());
+				std::string keyName = ScaleUtils::KEY_NAMES[keyIndex];
 
-			// Draw the text at a position
-			nvgText(args.vg, mm2px(38.099998), mm2px(41.5), scaleName.c_str(), NULL);
-			nvgText(args.vg, mm2px(61.200001), mm2px(41.5), keyName.c_str(), NULL);
+				// Draw the text at a position
+				nvgText(args.vg, mm2px(38.099998), mm2px(41.5), scaleName.c_str(), NULL);
+				nvgText(args.vg, mm2px(61.200001), mm2px(41.5), keyName.c_str(), NULL);
+			}
 		}
 	}
 };
