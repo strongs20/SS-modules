@@ -68,4 +68,7 @@ namespace ScaleUtils
         "Raga Kafi",
         "Maqam Hijaz",
         "Japanese Kumoi"};
+
+    std::string KEY_NAMES[] = {"C", "Db", "D", "Eb", "E", "F",
+                               "Gb", "G", "Ab", "A", "Bb", "B"};
 }

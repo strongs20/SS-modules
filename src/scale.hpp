@@ -29,4 +29,5 @@ namespace ScaleUtils
     extern int *SCALE_ARRAY[];
     extern int SCALE_SIZE[];
     extern std::string SCALE_NAMES[];
+    extern std::string KEY_NAMES[];
 }
