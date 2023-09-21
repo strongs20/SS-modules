@@ -1,5 +1,7 @@
 # SS-MODULES
 
+![Plugin Image](res/demo_pic.png)
+
 ## Description
 
 This is a plugin for VCV Rack that adds a collection of modules. So far, there is
