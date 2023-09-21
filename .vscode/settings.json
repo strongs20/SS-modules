@@ -62,6 +62,7 @@
         "concepts": "cpp",
         "numeric": "cpp",
         "random": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "thread": "cpp"
     }
 }

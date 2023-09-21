@@ -2,6 +2,8 @@
 #include "scale.hpp"
 #include <random>
 #include <string>
+#include <thread>
+#include <chrono>
 
 struct Melodygen : Module
 {
@@ -11,11 +13,11 @@ struct Melodygen : Module
 		SCALE_PARAM,
 		KEY_PARAM,
 		DISJUNCT_PARAM,
-		NEWNOTEPROB_PARAM,
-		GLIDEPROB_PARAM,
-		PASSINGTONES_PARAM,
-		REPETITIVE_PARAM,
-		GLIDEAMOUNT_PARAM,
+		RESTPROB_PARAM,
+		TRILLPROB_PARAM,
+		REPEAT_PARAM,
+		ROOTGRAVITY_PARANM,
+		TRILLRATE_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId
@@ -52,15 +54,15 @@ struct Melodygen : Module
 		configParam(DISJUNCT_PARAM, 0.f, 1.f, 0.5, "Disjunction");
 		configParam(RANGE_PARAM, 1, 5, 3, "Octave Range"); // Snapping to integer values between 1 and 5
 
-		configParam(NEWNOTEPROB_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(GLIDEPROB_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(PASSINGTONES_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(REPETITIVE_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(GLIDEAMOUNT_PARAM, 0.f, 1.f, 0.f, "");
+		configParam(RESTPROB_PARAM, 0.f, 1.f, 0.f, "Probability of Rest");
+		configParam(TRILLPROB_PARAM, 0.f, 1.f, 0.f, "Probability of Trill");
+		configParam(REPEAT_PARAM, 0.f, 1.f, 0.f, "");
+		configParam(ROOTGRAVITY_PARANM, 0.f, 1.f, 0.f, "% Root Gravity (this will override note repeat %!)");
+		configParam(TRILLRATE_PARAM, 0.f, 10.f, 0.f, "Rate of Trill");
 
-		configInput(GATE_INPUT, "");
-		configOutput(GATE_OUTPUT, "");
-		configOutput(CV_OUTPUT, "");
+		configInput(GATE_INPUT, "GATE IN");
+		configOutput(GATE_OUTPUT, "GATE OUT");
+		configOutput(CV_OUTPUT, "CV OUT");
 	}
 
 	float lastCV = 0.f;
@@ -70,10 +72,42 @@ struct Melodygen : Module
 	bool trilling = false;
 	float nextTrillCV;
 	float lastTrillCV;
+	int sampleCounter = 0;
+	int trillCount = 0;
+	const int samplesForTrillSwitch = 4000;
 
 	void process(const ProcessArgs &args) override
 	{
-		float gateIn = inputs[GATE_INPUT].getVoltage();
+		int trillRate = static_cast<int>((10.f - static_cast<float>(params[TRILLRATE_PARAM].getValue())) * 1000.f);
+		float gateIn = static_cast<float>(inputs[GATE_INPUT].getVoltage());
+		if (trilling)
+		{
+			if (sampleCounter >= trillRate)
+			{
+				trillCount++;
+				sampleCounter = 0;
+				if (trillCount % 2 == 0)
+				{
+					outputs[CV_OUTPUT].setVoltage(nextTrillCV);
+				}
+				else
+				{
+					outputs[CV_OUTPUT].setVoltage(lastTrillCV);
+				}
+			}
+			sampleCounter++;
+			if (trillCount == 8)
+			{
+				trilling = false;
+				trillCount = 0;
+				sampleCounter = 0;
+			}
+			else
+			{
+				return;
+			}
+		}
+
 		if (skipNote && gateIn >= 10.f)
 		{
 			return;
@@ -89,9 +123,12 @@ struct Melodygen : Module
 		int *selectedScale = ScaleUtils::SCALE_ARRAY[scaleIndex];
 		int scaleSize = ScaleUtils::SCALE_SIZE[scaleIndex];
 
-		// Get disjunct param
+		// Get prob params
 		float disjunctValue = static_cast<float>(params[DISJUNCT_PARAM].getValue());
-		float newNoteProb = static_cast<float>(params[NEWNOTEPROB_PARAM].getValue());
+		float restProb = static_cast<float>(params[RESTPROB_PARAM].getValue());
+		float rootProb = static_cast<float>(params[ROOTGRAVITY_PARANM].getValue());
+		float trillProb = static_cast<float>(params[TRILLPROB_PARAM].getValue());
+		float repeatProb = static_cast<float>(params[REPEAT_PARAM].getValue());
 
 		// Get the range in octaves from the knob
 		int range = static_cast<int>(params[RANGE_PARAM].getValue());
@@ -103,9 +140,9 @@ struct Melodygen : Module
 		if (gateIn >= 10.f && !gateOn)
 		{
 			// Determine if new note will happen
-			float randThresh = genProb();
+			float randRoll = genProb();
 
-			if (randThresh > newNoteProb)
+			if (randRoll < restProb)
 			{
 				outputs[GATE_OUTPUT].setVoltage(0.f);
 				skipNote = true;
@@ -118,36 +155,75 @@ struct Melodygen : Module
 			std::uniform_int_distribution<> dis;
 			int randomNoteIndex;
 
-			if (disjunctValue != 1.f)
+			std::vector<int> adjacentNotes;
+
+			float repeatRoll = genProb();
+
+			int notesBelowWeighted = static_cast<int>(static_cast<float>(lastRandIndex) * disjunctValue);
+			int notesAboveWeighted = static_cast<int>(static_cast<float>(totalNotes - lastRandIndex - 1) * disjunctValue);
+
+			int lowerBound = fmax(lastRandIndex - notesBelowWeighted, 0);
+			int upperBound = fmin(lastRandIndex + notesAboveWeighted, totalNotes - 1);
+
+			dis = std::uniform_int_distribution<>(lowerBound, upperBound);
+			randomNoteIndex = dis(gen);
+
+			// Check if the same note is selected as last time
+			if ((randomNoteIndex == lastRandIndex) && ((repeatRoll >= repeatProb) || (repeatProb == 0)))
 			{
-				std::vector<int> adjacentNotes;
-
-				// Check lower adjacent note
-				int notesBelowWeighted = static_cast<int>(static_cast<float>(lastRandIndex) * disjunctValue);
-				int notesAboveWeighted = static_cast<int>(static_cast<float>(totalNotes - lastRandIndex - 1) * disjunctValue);
-
-				int lowerBound = fmax(lastRandIndex - notesBelowWeighted, 0);
-				// Check upper adjacent note
-				int upperBound = fmin(lastRandIndex + notesAboveWeighted, totalNotes - 1);
-
-				// Choose from adjacentNotes
-				dis = std::uniform_int_distribution<>(lowerBound, upperBound);
-				randomNoteIndex = dis(gen);
-			}
-			else
-			{
-				dis = std::uniform_int_distribution<>(0, totalNotes - 1);
-				randomNoteIndex = dis(gen);
+				// Choose the note above or below it based on available range
+				if (randomNoteIndex > 0 && randomNoteIndex < totalNotes - 1)
+				{
+					randomNoteIndex += (gen() % 2 == 0) ? 1 : -1;
+				}
+				else if (randomNoteIndex > 0)
+				{
+					randomNoteIndex -= 1;
+				}
+				else
+				{
+					randomNoteIndex += 1;
+				}
 			}
 
 			int randomOctave = randomNoteIndex / scaleSize;
 			int randomNote = selectedScale[randomNoteIndex % scaleSize] + (12 * randomOctave) + keyValue;
+
+			// Calculate all root note positions
+			std::vector<int> rootNoteIndexes;
+			for (int i = 0; i <= range; ++i)
+			{
+				rootNoteIndexes.push_back(keyValue + i * 12); // Assuming keyValue is your root note and range is your max octave
+			}
+
+			// Find closest root note to randomNote
+			int closestRoot = *std::min_element(rootNoteIndexes.begin(), rootNoteIndexes.end(),
+												[&randomNote](const int &a, const int &b) -> bool
+												{
+													return std::abs(a - randomNote) < std::abs(b - randomNote);
+												});
+
+			float rootGravRoll = genProb();
+			if (rootGravRoll < rootProb)
+			{
+				randomNote = closestRoot;
+			}
 
 			lastCV = (float)randomNote / 12.f; // Assuming 1V/Oct standard
 			lastRandIndex = randomNoteIndex;
 			outputs[GATE_OUTPUT].setVoltage(10.f);
 
 			gateOn = true;
+
+			// Determine if trill will happen
+			float trillRoll = genProb();
+			if (trillRoll < trillProb)
+			{
+				trilling = true;
+			}
+			int nextNote = selectedScale[(randomNoteIndex + 1) % scaleSize] + (12 * randomOctave) + keyValue;
+			nextTrillCV = (float)nextNote / 12.f;
+			lastTrillCV = lastCV;
 		}
 		else if (gateIn < 10.f && gateOn)
 		{
@@ -202,11 +278,11 @@ struct MelodygenWidget : ModuleWidget
 		addParam(keyKnob);
 
 		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(15, 60.299976)), module, Melodygen::DISJUNCT_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(38.099998, 60.299976)), module, Melodygen::NEWNOTEPROB_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(61.200001, 60.299976)), module, Melodygen::GLIDEPROB_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(15, 88.29998)), module, Melodygen::PASSINGTONES_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(38.099998, 88.29998)), module, Melodygen::REPETITIVE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(61.200001, 88.29998)), module, Melodygen::GLIDEAMOUNT_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(38.099998, 60.299976)), module, Melodygen::RESTPROB_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(61.200001, 60.299976)), module, Melodygen::TRILLPROB_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(15, 88.29998)), module, Melodygen::REPEAT_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(38.099998, 88.29998)), module, Melodygen::ROOTGRAVITY_PARANM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(61.200001, 88.29998)), module, Melodygen::TRILLRATE_PARAM));
 
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(15, 115.15134)), module, Melodygen::GATE_INPUT));
 
