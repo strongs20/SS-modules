@@ -1,6 +1,6 @@
 # SS-MODULES
 
-![Plugin Image](res/demo_pic.png)
+<img src="res/demo_pic.png" width="25%" height="25%">
 
 ## Description
 
