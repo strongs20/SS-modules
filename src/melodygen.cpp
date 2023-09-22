@@ -74,7 +74,6 @@ struct Melodygen : Module
 	float lastTrillCV;
 	int sampleCounter = 0;
 	int trillCount = 0;
-	const int samplesForTrillSwitch = 4000;
 
 	void process(const ProcessArgs &args) override
 	{
@@ -139,6 +138,20 @@ struct Melodygen : Module
 		// Check for positive edge of gate
 		if (gateIn >= 10.f && !gateOn)
 		{
+			// Enforce window
+			if ((lastCV > 12.f) || (lastCV < 0.f))
+			{
+				lastCV = 0.f;
+				lastRandIndex = 0;
+				gateOn = false;
+				skipNote = false;
+				trilling = false;
+				nextTrillCV;
+				lastTrillCV;
+				sampleCounter = 0;
+				trillCount = 0;
+				return;
+			}
 			// Determine if new note will happen
 			float randRoll = genProb();
 
