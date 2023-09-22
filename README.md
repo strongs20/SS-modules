@@ -5,7 +5,8 @@
 ## Description
 
 This is a plugin for VCV Rack that adds a collection of modules. So far, there is
-only one module: Melodigen. Melodigen is a melody generator.
+only one module: Melodygen. Melodygen is a melody generator with unique parameters
+such as trilling, melody disjunct/conjuntion, and root gravity.
 
 ## Installation
 
