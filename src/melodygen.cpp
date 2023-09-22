@@ -146,8 +146,8 @@ struct Melodygen : Module
 				gateOn = false;
 				skipNote = false;
 				trilling = false;
-				nextTrillCV;
-				lastTrillCV;
+				nextTrillCV = 0;
+				lastTrillCV = 0;
 				sampleCounter = 0;
 				trillCount = 0;
 				return;
