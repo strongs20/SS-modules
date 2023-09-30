@@ -2,7 +2,7 @@
   "slug": "SS-Modules",
   "name": "SS-Modules",
   "version": "2.0.0",
-  "license": "proprietary",
+  "license": "GPL-3.0-or-later",
   "brand": "SS-Modules",
   "author": "Samuel Strong",
   "authorEmail": "samuelstrong@ucla.edu",
@@ -18,12 +18,8 @@
       "name": "melodygen",
       "description": "Generative melodies with useful parameters",
       "tags": [
-        "melody",
-        "random",
-        "generative",
-        "generation",
-        "notes",
-        "sesequencer"
+        "Sequencer",
+        "Random"
       ]
     }
   ]
